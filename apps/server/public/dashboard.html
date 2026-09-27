@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bulwark — live</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #12161f; --line: #232838; --text: #e6e9f0; --muted: #8b93a7;
+    --red: #ef5a6f; --orange: #f0a35d; --yellow: #e7c86a; --green: #6fd19b; --accent: #7c9cf0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .01em; }
+  header h1 b { color: var(--accent); }
+  #status { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  #status i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  #status.on i { background: var(--green); }
+  #status.off i { background: var(--red); }
+  main { max-width: 1000px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .panel { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 16px 18px; }
+  .panel h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .full { grid-column: 1 / -1; }
+  .policies { display: grid; gap: 10px; }
+  .policy-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; font-size: 13px; }
+  .policy-row .name { font-family: ui-monospace, monospace; color: var(--accent); }
+  .policy-row .bar { grid-column: 1 / -1; height: 6px; border-radius: 99px; background: #1a2030; overflow: hidden; }
+  .policy-row .bar span { display: block; height: 100%; background: var(--green); transition: width .3s; }
+  .policy-row.has-refusals .bar span { background: var(--orange); }
+  .num-allowed { color: var(--green); font-variant-numeric: tabular-nums; }
+  .num-refused { color: var(--red); font-variant-numeric: tabular-nums; }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center; }
+  .stat-grid div { background: #0d1220; border-radius: 8px; padding: 10px 6px; }
+  .stat-grid .n { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat-grid .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+  ul.log { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; display: grid; gap: 0; }
+  ul.log li { display: grid; grid-template-columns: auto auto 1fr auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+  ul.log li:first-child { border-top: none; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.ok { background: var(--green); } .dot.refused { background: var(--red); }
+  .dot.claimed { background: var(--accent); } .dot.completed { background: var(--green); }
+  .dot.retrying { background: var(--orange); } .dot.dead { background: var(--red); } .dot.failed { background: var(--red); }
+  .inst { font-family: ui-monospace, monospace; color: var(--muted); font-size: 11px; }
+  .log-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-time { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  footer { max-width: 1000px; margin: 0 auto; padding: 0 20px 40px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bul<b>wark</b> — live</h1>
+  <span id="status" class="off"><i></i><span id="status-text">connecting…</span></span>
+</header>
+<main>
+  <section class="panel">
+    <h2>Rate limit policies</h2>
+    <div class="policies" id="policies"><p class="muted">Waiting for traffic…</p></div>
+  </section>
+  <section class="panel">
+    <h2>Job queue</h2>
+    <div class="stat-grid" id="queue-stats">
+      <div><div class="n" id="s-ready">–</div><div class="l">ready</div></div>
+      <div><div class="n" id="s-processing">–</div><div class="l">processing</div></div>
+      <div><div class="n" id="s-delayed">–</div><div class="l">retrying</div></div>
+      <div><div class="n" id="s-dead">–</div><div class="l">dead</div></div>
+    </div>
+  </section>
+  <section class="panel full">
+    <h2>Live activity — every instance sharing this Redis, not just the one serving this page</h2>
+    <ul class="log" id="log"><li><span class="log-main muted">Waiting for the first event…</span></li></ul>
+  </section>
+</main>
+<footer>Each row shows which instance handled it (<span class="inst">instance-id</span>) — open this page on a different
+port of the same cluster and you will see the same events, because they are relayed over Redis, not read from one
+process's memory.</footer>
+<script>
+(() => {
+  const statusEl = document.getElementById('status')
+  const statusText = document.getElementById('status-text')
+  const policiesEl = document.getElementById('policies')
+  const logEl = document.getElementById('log')
+  const policies = new Map() // name -> { allowed, refused, el }
+  const MAX_LOG = 200
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
+  function timeStr(at) { return new Date(at).toLocaleTimeString([], { hour12: false }) }
+
+  function renderPolicy(name) {
+    const p = policies.get(name)
+    const total = p.allowed + p.refused
+    const pct = total ? Math.round((p.allowed / total) * 100) : 100
+    p.el.className = 'policy-row' + (p.refused > 0 ? ' has-refusals' : '')
+    p.el.innerHTML = `
+      <span class="name">${esc(name)}</span>
+      <span class="num-allowed">${p.allowed} ok</span>
+      <span class="num-refused">${p.refused} refused</span>
+      <div class="bar"><span style="width:${pct}%"></span></div>`
+  }
+
+  function onLimit(e) {
+    if (policiesEl.querySelector('.muted')) policiesEl.innerHTML = ''
+    let p = policies.get(e.policy)
+    if (!p) { p = { allowed: 0, refused: 0, el: document.createElement('div') }; policies.set(e.policy, p); policiesEl.append(p.el) }
+    if (e.allowed) p.allowed++; else p.refused++
+    renderPolicy(e.policy)
+    addLog(e.allowed ? 'ok' : 'refused', e.instanceId, `<b>${esc(e.policy)}</b> · ${esc(e.key)} · ${e.allowed ? 'allowed' : 'refused'} (remaining ${e.remaining})`, e.at)
+  }
+
+  function onJob(e) {
+    addLog(e.event, e.instanceId, `job <b>${esc(e.event)}</b> · ${esc(e.id.slice(0, 8))} · attempt ${e.attempt}${e.error ? ' · ' + esc(e.error) : ''}`, e.at)
+  }
+
+  function addLog(cls, instanceId, html, at) {
+    if (logEl.querySelector('.muted')) logEl.innerHTML = ''
+    const li = document.createElement('li')
+    li.innerHTML = `<span class="dot ${cls}"></span><span class="inst">${esc(instanceId)}</span><span class="log-main">${html}</span><span class="log-time">${timeStr(at)}</span>`
+    logEl.prepend(li)
+    while (logEl.children.length > MAX_LOG) logEl.removeChild(logEl.lastChild)
+  }
+
+  function connect() {
+    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/dashboard/live')
+    ws.onopen = () => { statusEl.className = 'on'; statusText.textContent = 'live' }
+    ws.onclose = () => { statusEl.className = 'off'; statusText.textContent = 'reconnecting…'; setTimeout(connect, 2000) }
+    ws.onerror = () => ws.close()
+    ws.onmessage = (m) => {
+      let e
+      try { e = JSON.parse(m.data) } catch { return }
+      if (e.type === 'limit') onLimit(e)
+      else if (e.type === 'job') onJob(e)
+    }
+  }
+  connect()
+
+  async function pollStats() {
+    try {
+      const r = await fetch('/stats')
+      const j = await r.json()
+      document.getElementById('s-ready').textContent = j.queue.ready
+      document.getElementById('s-processing').textContent = j.queue.processing
+      document.getElementById('s-delayed').textContent = j.queue.delayed
+      document.getElementById('s-dead').textContent = j.queue.dead
+    } catch { /* try again next tick */ }
+  }
+  pollStats()
+  setInterval(pollStats, 1000)
+})()
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+import Redis from 'ioredis'
+
+export const REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6390'
+
+let cached: boolean | undefined
+export async function redisAvailable(): Promise<boolean> {
+  if (cached !== undefined) return cached
+  const r = new Redis(REDIS_URL, { lazyConnect: true, retryStrategy: () => null, connectTimeout: 800 })
+  try { await r.connect(); await r.ping(); cached = true } catch { cached = false } finally { r.disconnect() }
+  return cached
+}

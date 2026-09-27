@@ -1,0 +1,24 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6390:6379"]
+    command: redis-server --save "" --appendonly no
+
+  # Three independent instances of the same server image, sharing nothing but Redis. Each is reachable on its own
+  # host port so a client (or the verification script) can prove they really are separate processes, not one server
+  # pretending to be three: correctness comes from Redis, not from any instance remembering anything on its own.
+  server-a:
+    build: { context: ., dockerfile: apps/server/Dockerfile }
+    environment: { REDIS_URL: redis://redis:6379, INSTANCE_ID: server-a, PORT: "3300" }
+    ports: ["3301:3300"]
+    depends_on: [redis]
+  server-b:
+    build: { context: ., dockerfile: apps/server/Dockerfile }
+    environment: { REDIS_URL: redis://redis:6379, INSTANCE_ID: server-b, PORT: "3300" }
+    ports: ["3302:3300"]
+    depends_on: [redis]
+  server-c:
+    build: { context: ., dockerfile: apps/server/Dockerfile }
+    environment: { REDIS_URL: redis://redis:6379, INSTANCE_ID: server-c, PORT: "3300" }
+    ports: ["3303:3300"]
+    depends_on: [redis]

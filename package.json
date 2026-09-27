@@ -1,0 +1,27 @@
+{
+  "name": "bulwark",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "npm run typecheck -w packages/core && npm run typecheck -w packages/distributed && npm run typecheck -w apps/server",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "verify:distributed": "tsx packages/distributed/scripts/verify-distributed.mts",
+    "start": "npm run start -w apps/server",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "verify:multi-instance": "tsx apps/server/scripts/verify-multi-instance.mts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "tsx": "^4.19.2",
+    "@types/ws": "^8.5.13"
+  }
+}
