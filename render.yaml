@@ -1,0 +1,54 @@
+# Three independent free web services from the same image, sharing nothing but Redis — the same shape as the local
+# docker-compose.yml, just on Render instead of Docker Desktop. Each is reachable on its own URL, and the dashboard on
+# any one of them shows what all three are doing, because that is relayed over Redis, not read from local memory.
+#
+# REAP_INTERVAL_MS and QUEUE_CONCURRENCY are turned down from the local defaults (2s / 4) to fit a free-tier Redis's
+# monthly command budget: the reap/promoteDue loop alone runs on every instance forever, so its interval directly sets
+# how many Redis commands three always-on services burn per month even with zero real traffic. 20s x 3 instances is
+# about 13,000 commands/month for the reaper alone, well inside a 500k/month free tier; 2s would be roughly 15x that.
+services:
+  - type: web
+    name: bulwark-server-a
+    runtime: docker
+    dockerfilePath: apps/server/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: INSTANCE_ID
+        value: server-a
+      - key: REDIS_URL
+        sync: false # paste your Redis provider's connection string (rediss://... for Upstash) after creating this service
+      - key: QUEUE_CONCURRENCY
+        value: "2"
+      - key: REAP_INTERVAL_MS
+        value: "20000"
+  - type: web
+    name: bulwark-server-b
+    runtime: docker
+    dockerfilePath: apps/server/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: INSTANCE_ID
+        value: server-b
+      - key: REDIS_URL
+        sync: false
+      - key: QUEUE_CONCURRENCY
+        value: "2"
+      - key: REAP_INTERVAL_MS
+        value: "20000"
+  - type: web
+    name: bulwark-server-c
+    runtime: docker
+    dockerfilePath: apps/server/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: INSTANCE_ID
+        value: server-c
+      - key: REDIS_URL
+        sync: false
+      - key: QUEUE_CONCURRENCY
+        value: "2"
+      - key: REAP_INTERVAL_MS
+        value: "20000"
